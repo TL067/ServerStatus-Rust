@@ -79,7 +79,7 @@ impl StatsMgr {
 
         // load last_network_in/out
         if let Ok(mut hosts_map) = hosts_map_base.lock() {
-            self.load_last_network(&mut *hosts_map);
+            self.load_last_network(&mut hosts_map);
         }
 
         let (stat_tx, stat_rx) = sync_channel(512);
@@ -94,11 +94,10 @@ impl StatsMgr {
         let stat_map_1 = stat_map.clone();
         let notifier_tx_1 = notifier_tx.clone();
         thread::spawn(move || loop {
-            while let Ok(stat) = stat_rx.recv() {
+            while let Ok(mut stat) = stat_rx.recv() {
                 trace!("recv stat `{:?}", stat);
 
-                let mut stat_c = stat;
-                let mut stat_t = stat_c.to_mut();
+                let mut stat_t = stat.to_mut();
 
                 // group mode
                 if !stat_t.gid.is_empty() {
@@ -194,10 +193,10 @@ impl StatsMgr {
 
                             if stat_t.notify && (pre_stat.latest_ts + cfg.offline_threshold < stat_t.latest_ts) {
                                 // node up notify
-                                notifier_tx_1.send((Event::NodeUp, stat_c.to_owned()));
+                                notifier_tx_1.send((Event::NodeUp, stat.clone()));
                             }
                         }
-                        host_stat_map.insert(stat_c.name.to_string(), stat_c);
+                        host_stat_map.insert(stat.name.to_string(), stat);
                         //trace!("{:?}", host_stat_map);
                     }
                 }
@@ -236,11 +235,11 @@ impl StatsMgr {
             if let Ok(mut host_stat_map) = stat_map_2.lock() {
                 for (_, stat) in host_stat_map.iter_mut() {
                     if stat.disabled {
-                        resp.servers.push(stat.to_owned().into_owned());
+                        resp.servers.push(stat.as_ref().clone());
                         continue;
                     }
-                    let stat_c = stat.borrow_mut();
-                    let o = stat_c.to_mut();
+                    let stat = stat.borrow_mut();
+                    let o = stat.to_mut();
                     // 30s 下线
                     if o.latest_ts + cfg.offline_threshold < now {
                         o.online4 = false;
@@ -252,16 +251,16 @@ impl StatsMgr {
                         // notify check /30 s
                         if latest_notify_ts + cfg.notify_interval < now {
                             if o.online4 || o.online6 {
-                                notifier_tx_2.send((Event::Custom, stat_c.to_owned()));
+                                notifier_tx_2.send((Event::Custom, stat.clone()));
                             } else {
                                 o.disabled = true;
-                                notifier_tx_2.send((Event::NodeDown, stat_c.to_owned()));
+                                notifier_tx_2.send((Event::NodeDown, stat.clone()));
                             }
                             notified = true;
                         }
                     }
 
-                    resp.servers.push(stat_c.to_owned().into_owned());
+                    resp.servers.push(stat.as_ref().clone());
                 }
                 if notified {
                     latest_notify_ts = now;
@@ -340,5 +339,23 @@ impl StatsMgr {
             }
         };
         Ok(())
+    }
+
+    pub fn get_all_info(&self) -> Result<serde_json::Value> {
+        let data = self.stats_data.lock().unwrap();
+        let mut resp_json = serde_json::to_value(&*data)?;
+        // for skip_serializing
+        if let Some(srv_list) = resp_json["servers"].as_array_mut() {
+            for (idx, stat) in data.servers.iter().enumerate() {
+                if let Some(srv) = srv_list[idx].as_object_mut() {
+                    srv.insert("ip_info".into(), serde_json::to_value(stat.ip_info.as_ref())?);
+                    srv.insert("sys_info".into(), serde_json::to_value(stat.sys_info.as_ref())?);
+                }
+            }
+        } else {
+            // todo!()
+        };
+
+        Ok(resp_json)
     }
 }

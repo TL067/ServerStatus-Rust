@@ -18,8 +18,33 @@ static UNAUTHORIZED: &[u8] = b"Unauthorized";
 static INTERNAL_SERVER_ERROR: &[u8] = b"Internal Server Error";
 const KIND: &str = "http";
 
+// client auth
+pub fn client_auth(req: &Request<Body>) -> bool {
+    let req_header = req.headers();
+    // auth
+    let mut auth_ok = false;
+    let mut group_auth = false;
+    if let Some(ssr_auth) = req_header.get("ssr-auth") {
+        group_auth = "group".eq(ssr_auth);
+    }
+
+    if let Some(auth) = req_header.get(hyper::header::AUTHORIZATION) {
+        let auth_header_value = auth.to_str().unwrap().to_string();
+        if let Ok(credentials) = Credentials::from_header(auth_header_value) {
+            if let Some(cfg) = G_CONFIG.get() {
+                if group_auth {
+                    auth_ok = cfg.group_auth(&credentials.user_id, &credentials.password);
+                } else {
+                    auth_ok = cfg.auth(&credentials.user_id, &credentials.password);
+                }
+            }
+        }
+    }
+    auth_ok
+}
+
 // admin auth
-fn is_admin(req: &Request<Body>) -> bool {
+pub fn admin_auth(req: &Request<Body>) -> bool {
     if let Some(auth) = req.headers().get(hyper::header::AUTHORIZATION) {
         let auth_header_value = auth.to_str().unwrap().to_string();
         if let Ok(credentials) = Credentials::from_header(auth_header_value) {
@@ -29,6 +54,21 @@ fn is_admin(req: &Request<Body>) -> bool {
         }
     }
     false
+}
+
+pub async fn get_admin_stats_json(req: Request<Body>) -> Result<Response<Body>> {
+    if !admin_auth(&req) {
+        return Ok(Response::builder()
+            .header(header::WWW_AUTHENTICATE, "Basic realm=\"Restricted\"")
+            .status(StatusCode::UNAUTHORIZED)
+            .body(UNAUTHORIZED.into())?);
+    }
+
+    let resp = G_STATS_MGR.get().unwrap().get_all_info()?;
+
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::to_string(&resp)?))?)
 }
 
 pub async fn init_client(req: Request<Body>) -> Result<Response<Body>> {
@@ -116,6 +156,11 @@ pub async fn init_client(req: Request<Body>) -> Result<Response<Body>> {
         .get("weight")
         .map(|p| p.parse::<u64>().unwrap_or(0_u64))
         .unwrap_or(0_u64);
+    let vnstat_mr = params
+        .get("vnstat-mr")
+        .map(|p| p.parse::<u32>().unwrap_or(1_u32))
+        .unwrap_or(1_u32);
+
     let notify = params.get("notify").map(|p| !p.eq("0")).unwrap_or(true);
     let host_type = params.get("type").unwrap_or(&invalid);
     let location = params.get("loc").unwrap_or(&invalid);
@@ -124,6 +169,9 @@ pub async fn init_client(req: Request<Body>) -> Result<Response<Body>> {
     let mut client_opts = format!(r#"-a "{}" -p "{}""#, server_url, pass);
     if vnstat {
         client_opts.push_str(" -n");
+    }
+    if 1 < vnstat_mr && vnstat_mr <= 28 {
+        let _ = write!(client_opts, r#" --vnstat-mr "{}""#, vnstat_mr);
     }
     if disable_ping {
         client_opts.push_str(" --disable-ping");
@@ -192,10 +240,6 @@ pub fn init_jinja_tpl() -> Result<()> {
     let map_html: String = String::from_utf8(map_data.data.try_into()?).unwrap();
     jinja::add_template(KIND, "map", map_html);
 
-    let detail_ht_data = Asset::get("/jinja/detail_ht.jinja.html").expect("detail_ht.jinja.html not found");
-    let detail_ht_html: String = String::from_utf8(detail_ht_data.data.try_into()?).unwrap();
-    jinja::add_template(KIND, "detail_ht", detail_ht_html);
-
     let client_init_sh = Asset::get("/jinja/client-init.jinja.sh").expect("client-init.jinja.sh not found");
     let client_init_sh_s: String = String::from_utf8(client_init_sh.data.try_into()?).unwrap();
     jinja::add_template(KIND, "client-init", client_init_sh_s);
@@ -204,43 +248,30 @@ pub fn init_jinja_tpl() -> Result<()> {
 
 //
 pub async fn render_jinja_ht_tpl(tag: &'static str, req: Request<Body>) -> Result<Response<Body>> {
-    if !is_admin(&req) {
+    if !admin_auth(&req) {
         return Ok(Response::builder()
             .header(header::WWW_AUTHENTICATE, "Basic realm=\"Restricted\"")
             .status(StatusCode::UNAUTHORIZED)
             .body(UNAUTHORIZED.into())?);
     }
 
-    // for skip_serializing
-    let resp = G_STATS_MGR.get().unwrap().get_stats();
-    let o = resp.lock().unwrap();
-    let mut sys_info_list = Vec::new();
-    let mut ip_info_list = Vec::new();
-    for stat in &*o.servers {
-        ip_info_list.push(stat.ip_info.as_ref());
-        sys_info_list.push(stat.sys_info.as_ref());
-    }
+    let o = G_STATS_MGR.get().unwrap().get_all_info()?;
 
-    Ok(jinja::render_template(
-        KIND,
-        tag,
-        context!(resp => &*o, ip_info_list => ip_info_list, sys_info_list => sys_info_list),
-        false,
-    )
-    .map(|contents| {
-        Response::builder()
-            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-            .body(Body::from(contents))
-    })?
-    .unwrap_or(
-        Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(INTERNAL_SERVER_ERROR.into())?,
-    ))
+    Ok(jinja::render_template(KIND, tag, context!(resp => &o), false)
+        .map(|contents| {
+            Response::builder()
+                .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+                .body(Body::from(contents))
+        })?
+        .unwrap_or(
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(INTERNAL_SERVER_ERROR.into())?,
+        ))
 }
 
 pub async fn get_detail(req: Request<Body>) -> Result<Response<Body>> {
-    if !is_admin(&req) {
+    if !admin_auth(&req) {
         return Ok(Response::builder()
             .header(header::WWW_AUTHENTICATE, "Basic realm=\"Restricted\"")
             .status(StatusCode::UNAUTHORIZED)
