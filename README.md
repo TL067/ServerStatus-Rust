@@ -8,7 +8,7 @@
 [![GitHub all releases](https://img.shields.io/github/downloads/zdz/ServerStatus-Rust/total)](https://github.com/zdz/ServerStatus-Rust/releases)
 
 
-<img width="1215" alt="image" src="https://user-images.githubusercontent.com/152173/165957689-d35714a9-f7f8-49f7-9573-97d4cf3c2f79.png">
+<img width="1351" alt="image" src="https://user-images.githubusercontent.com/152173/205429787-5afc1590-dfae-4808-b2cc-b89889b3a6b9.png">
 <img width="1436" alt="image" src="https://user-images.githubusercontent.com/152173/165958225-25fc8fda-5798-42f8-bac5-72d778c0bab5.png">
 
 <h2>Table of Contents</h2>
@@ -33,17 +33,17 @@
   - [8. 最后](#8-最后)
 
 ## 1. 介绍
-  `cppla/ServerStatus` 的威力加强版，保持轻量和简化部署，增加主要特性如下：
+  `ServerStatus` 威力加强版，保持轻量和简化部署，增加主要特性如下：
 
 - 使用 `rust` 完全重写 `server`、`client`，单个执行文件部署
 - 支持上下线和简单自定义规则告警 (`telegram`、 `wechat`、 `email`、 `webhook`)
-- 支持 `http` 协议上报，可以方便部署到各免费容器服务和配合 `cf` 等优化上报链路
+- 支持 `http` 协议上报，方便部署到各免费容器服务和配合 `cf` 等优化上报链路
 - 支持 `vnstat` 统计月流量，重启不丢流量数据
 - 支持 `railway` 快速部署
 - 支持 `systemd` 开机自启
 - 其它功能，如 🗺️  见 [wiki](https://github.com/zdz/ServerStatus-Rust/wiki)
 
-演示：[ssr.rs](https://ssr.rs)
+演示：[ssr.rs](https://ssr.rs) | [cn dns](https://ck.ssr.rs)
 |
 下载：[Releases](https://github.com/zdz/ServerStatus-Rust/releases)
 |
@@ -55,7 +55,7 @@
 
 ### 🍀 主题
 
-如果你觉得你创造/修改的主题还不错，欢迎分享/PR，前端单独部署方法参见 [#37](https://github.com/zdz/ServerStatus-Rust/discussions/37)
+如果你觉得你创造/修改的主题还不错，欢迎分享/PR，前端单独部署方法参考 [#37](https://github.com/zdz/ServerStatus-Rust/discussions/37)
 
 <details>
   <summary>Hotaru 主题</summary>
@@ -75,7 +75,13 @@ ServerStatus-web 主题由 [@mjjrock](https://github.com/mjjrock) 修改提供�
 
 <img width="1425" alt="image" src="https://user-images.githubusercontent.com/102237118/171837653-3a5b2cd6-bf02-4602-a132-2c80a6707f68.png">
 
+</details>
 
+
+<details>
+  <summary>v1.5.7版本主题</summary>
+
+<img width="1215" alt="image" src="https://user-images.githubusercontent.com/152173/165957689-d35714a9-f7f8-49f7-9573-97d4cf3c2f79.png">
 </details>
 
 ## 2. 安装部署
@@ -162,15 +168,21 @@ offline_threshold = 30
 admin_user = ""
 admin_pass = ""
 
+# hosts 跟 hosts_group 两种配置模式任挑一种配置即可
 # name 主机唯一标识，不可重复，alias 为展示名
-# 使用 ansible 批量部署时可以用主机 hostname 作为 name，统一密码
 # notify = false 单独禁止单台机器的告警，一般针对网络差，频繁上下线
 # monthstart = 1 没启用vnstat时，表示月流量从每月哪天开始统计
-# disabled = true 单机禁用，跟删除这条配置的效果一样
+# disabled = true 单机禁用
+# location 支持国旗 emoji https://emojixd.com/group/flags
+# 或国家缩写，如 cn us 等等，所有国家见目录 web/static/flags
+# 自定义标签 labels = "os=centos;ndd=2022/11/25;spec=2C/4G/60G;"
+# os 标签可选，不填则使用上报数据，ndd(next due date) 下次续费时间, spec 为主机规格
+# os 可用值 centos debian ubuntu alpine pi arch windows linux
 hosts = [
-  {name = "h1", password = "p1", alias = "n1", location = "🏠", type = "kvm", notify = true},
+  {name = "h1", password = "p1", alias = "n1", location = "🏠", type = "kvm", labels = "os=arch;ndd=2022/11/25;spec=2C/4G/60G;"},
   {name = "h2", password = "p2", alias = "n2", location = "🏢", type = "kvm", disabled = false},
   {name = "h3", password = "p3", alias = "n3", location = "🏡", type = "kvm", monthstart = 1},
+  {name = "h4", password = "p4", alias = "n4", location = "cn", type = "kvm", notify = true, labels = "ndd=2022/11/25;spec=2C/4G/60G;"},
 ]
 
 # 动态注册模式，不再需要针对每一个主机做单独配置
@@ -195,7 +207,7 @@ notify_interval = 30
 enabled = false
 bot_token = "<tg bot token>"
 chat_id = "<chat id>"
-# host 可用字段参见 payload.rs 文件 HostStat 结构, {{host.xxx}} 为占位变量
+# host 可用字段见 payload.rs 文件 HostStat 结构, {{host.xxx}} 为占位变量
 # 例如 host.name 可替换为 host.alias，大家根据自己的喜好来编写通知消息
 # {{ip_info.query}} 主机 ip,  {{sys_info.host_name}} 主机 hostname
 title = "❗<b>Server Status</b>"
@@ -243,10 +255,10 @@ docker-compose up -d
 
 ### 4.1 Linux (`CentOS`, `Ubuntu`, `Debian`)
 ```bash
-# 公网环境建议 nebula 组网或走 https, 使用 nginx 对 server 套 ssl 和自定义 location /report
+# 公网环境建议 headscale/nebula 组网或走 https, 使用 nginx 对 server 套 ssl 和自定义 location /report
 # Rust 版只在 CentOS, Ubuntu, Debian 测试过
+# alpine linux 需要安装相关命令 apk add procps iproute2 coreutils
 # 如果 Rust 版客户端在你的系统无法使用，请切换到下面 4.2 跨平台版本
-
 # systemd 方式， 参照 one-touch.sh 脚本 (推荐)
 
 # 💪 手动方式
@@ -312,6 +324,7 @@ python3 -m pip install psutil requests py-cpuinfo
 
 ## Alpine linux
 apk add wget python3 py3-pip gcc python3-dev musl-dev linux-headers
+apk add procps iproute2 coreutils
 python3 -m pip install psutil requests py-cpuinfo
 
 wget --no-check-certificate -qO stat_client.py 'https://raw.githubusercontent.com/zdz/ServerStatus-Rust/master/client/stat_client.py'
@@ -367,7 +380,7 @@ python3 stat_client.py -a "http://127.0.0.1:8080/report" -u h1 -p p1 -n
 <details>
   <summary>如何使用自定义主题</summary>
 
-更灵活的方式参见 [#37](https://github.com/zdz/ServerStatus-Rust/discussions/37)
+更灵活的方式见 [#37](https://github.com/zdz/ServerStatus-Rust/discussions/37)
 
 ```nginx
 server {
@@ -440,13 +453,16 @@ OPTIONS:
   <summary>关于这个轮子</summary>
 
   之前一直在使用 `Prometheus` + `Grafana` + `Alertmanager` + `node_exporter` 做VPS监控，这也是业界比较成熟的监控方案，用过一段时间后，发现非生产环境，很多监控指标都用不上，反而显得有些重。
-  而 `ServerStatus` 很好，足够简单和轻量，一眼可以看尽所有小机机，只是 `c++` 版本很久没迭代过，自己的一些需求在原版上不是很好修改，如自带 `tcp` 上报对跨区机器不是很友好，也不方便对上报的链路做优化 等等。过年的时候正值疫情闲来无事，学习 `Rust` 正好需要个小项目练手，于是撸了个 `ServerStatus` 来练手，项目后面会佛系更新但不会增加复杂的功能(有意思的除外)，保持小而美，简单部署，配合 [Uptime Kuma](https://github.com/louislam/uptime-kuma) 基本上可以满足个人大部分监控需求。
+  而 `ServerStatus` 很好，足够简单和轻量，一眼可以看尽所有小机机，只是 `c++` 版本很久没迭代过，自己的一些需求在原版上不是很好修改，如自带 `tcp` 上报对跨区机器不是很友好，也不方便对上报的链路做优化 等等。这是学习 `Rust` 练手的小项目，所以不会增加复杂功能，保持小而美，简单部署，配合 [Uptime Kuma](https://github.com/louislam/uptime-kuma) 基本上可以满足个人大部分监控需求。
 
 </details>
 
 ## 7. 相关项目
-- https://github.com/cppla/ServerStatus
 - https://github.com/BotoX/ServerStatus
+- https://github.com/cppla/ServerStatus
+- https://github.com/mojeda/ServerStatus
+- https://github.com/cokemine/ServerStatus-Hotaru
+- https://github.com/ToyoDAdoubiBackup/ServerStatus-Toyo
 
 ## 8. 最后
 
